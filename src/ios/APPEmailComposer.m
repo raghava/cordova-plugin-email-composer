@@ -1,6 +1,6 @@
 /*
  Copyright 2013-2016 appPlant UG
-
+ 
  Licensed to the Apache Software Foundation (ASF) under one
  or more contributor license agreements.  See the NOTICE file
  distributed with this work for additional information
@@ -8,9 +8,9 @@
  to you under the Apache License, Version 2.0 (the
  "License"); you may not use this file except in compliance
  with the License.  You may obtain a copy of the License at
-
+ 
  http://www.apache.org/licenses/LICENSE-2.0
-
+ 
  Unless required by applicable law or agreed to in writing,
  software distributed under the License is distributed on an
  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -23,7 +23,7 @@
 #import "APPEmailComposerImpl.h"
 #import <Cordova/CDVAvailability.h>
 #ifndef __CORDOVA_4_0_0
-    #import <Cordova/NSData+Base64.h>
+#import <Cordova/NSData+Base64.h>
 #endif
 #import <MobileCoreServices/MobileCoreServices.h>
 
@@ -65,10 +65,10 @@
         NSString* scheme = command.arguments[0];
         NSArray* boolArray = [_impl canSendMail:scheme];
         CDVPluginResult* result;
-
+        
         result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
-                                     messageAsMultipart:boolArray];
-
+                                messageAsMultipart:boolArray];
+        
         [self.commandDelegate sendPluginResult:result
                                     callbackId:command.callbackId];
     }];
@@ -83,23 +83,35 @@
 - (void) open:(CDVInvokedUrlCommand*)command
 {
     NSDictionary* props = command.arguments[0];
-
+    
     _command = command;
-
+    
     [self.commandDelegate runInBackground:^{
         NSString* scheme = [props objectForKey:@"app"];
-
-        if (![self canUseAppleMail:scheme]) {
+        
+        if (![_impl canSendMail:scheme]) {
+            NSLog(@"Dont know how to handle %@. Using iMail instead.", scheme);
+            scheme = @"mailto:";
+        }
+        
+        // iMail
+        if ([self canUseAppleMail:scheme])
+        {
+            if (TARGET_IPHONE_SIMULATOR)
+            {
+                [self informAboutIssueWithSimulators];
+                [self execCallback];
+                return;
+            }
+            else
+            {
+                [self presentMailComposerFromProperties:props];
+            }
+        }
+        // URL scheme
+        else
+        {
             [self openURLFromProperties:props];
-            return;
-        }
-
-        if (TARGET_IPHONE_SIMULATOR) {
-            [self informAboutIssueWithSimulators];
-            [self execCallback];
-        }
-        else {
-            [self presentMailComposerFromProperties:props];
         }
     }];
 }
@@ -115,9 +127,40 @@
            didFinishWithResult:(MFMailComposeResult)result
                          error:(NSError*)error
 {
-    [controller dismissViewControllerAnimated:YES completion:NULL];
-
-    [self execCallback];
+    BOOL commandStatus;
+    NSString* messageStatus;
+    switch (result)
+    {
+        case MFMailComposeResultCancelled:
+            commandStatus = NO;
+            messageStatus = @"MailCancelled";
+            break;
+        case MFMailComposeResultSaved:
+            commandStatus = YES;
+            messageStatus = @"MailSaved";
+            break;
+        case MFMailComposeResultSent:
+            commandStatus = YES;
+            messageStatus = @"MailSent";
+            break;
+        case MFMailComposeResultFailed:
+            commandStatus = NO;
+            messageStatus = @"MailError";
+            NSLog(@"Mail sent failure: %@", [error localizedDescription]);
+            break;
+        default:
+            break;
+    }
+    NSArray *resultArray = [NSArray arrayWithObjects:@(commandStatus), messageStatus, nil];
+    
+    
+    [controller dismissViewControllerAnimated:YES completion:^{
+        CDVPluginResult *pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
+                                                       messageAsMultipart:resultArray];
+        
+        [self.commandDelegate sendPluginResult:pluginResult
+                                    callbackId:self.command.callbackId];
+    }];
 }
 
 #pragma mark -
@@ -134,12 +177,12 @@
     dispatch_async(dispatch_get_main_queue(), ^{
         MFMailComposeViewController* draft =
         [_impl mailComposerFromProperties:props delegateTo:self];
-
+        
         [self.viewController presentViewController:draft
                                           animated:YES
                                         completion:NULL];
     });
-
+    
 }
 
 /**
@@ -151,7 +194,7 @@
 - (void) openURLFromProperties:(NSDictionary*)props
 {
     NSURL* url = [_impl urlFromProperties:props];
-
+    
     [[UIApplication sharedApplication] openURL:url];
 }
 
@@ -177,9 +220,9 @@
     dispatch_async(dispatch_get_main_queue(), ^{
         [[[UIAlertView alloc] initWithTitle:@"Email-Composer"
                                     message:@"Please use a physical device."
-                                   delegate:NULL
+                                   delegate:nil
                           cancelButtonTitle:@"OK"
-                          otherButtonTitles:NULL] show];
+                          otherButtonTitles:nil] show];
     });
 }
 
@@ -190,7 +233,7 @@
 {
     CDVPluginResult *result = [CDVPluginResult
                                resultWithStatus:CDVCommandStatus_OK];
-
+    
     [self.commandDelegate sendPluginResult:result
                                 callbackId:_command.callbackId];
 }
